@@ -6,7 +6,7 @@ $Action = New-ScheduledTaskAction -Execute $PythonWPath -Argument $FilePath
 # Trigger when the computer has been idle for 5 minutes
 $Trigger = New-ScheduledTaskTrigger -Idle -IdleTime 5
 
-$Settings = New-ScheduledTaskSettingsSet -Hidden -AllowDemandStart -AllowHardTerminate -WakeToRun
+$Settings = New-ScheduledTaskSettingsSet -Hidden
 
 # Use the current user's credentials
 $Principal = New-ScheduledTaskPrincipal -UserId ([System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value) -RunLevel Highest
