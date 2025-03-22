@@ -1,6 +1,7 @@
 import os
 import sys
 import ctypes
+import platform
 
 def is_admin():
     if platform.system() == 'Windows':
