@@ -25,9 +25,5 @@ $Task.Settings.DisallowStartIfOnBatteries = $false
 # Set the task to hidden
 $Task.Settings.Hidden = $true
 
-# Stop if the computer ceases to be idle
-$Task.Settings.StopIfGoingOnBatteries = $false
-#$Task.Settings.StopIfIdleEnd = $true # removed because of idle trigger removal.
-
 # Update the task using the -InputObject parameter
 Set-ScheduledTask -InputObject $Task
